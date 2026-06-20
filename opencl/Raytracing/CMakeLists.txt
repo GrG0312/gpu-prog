@@ -10,5 +10,5 @@ add_executable(Raytracing
     src/main.cpp
 )
 
-target_include_directories(Raytracing PRIVATE include)
+target_include_directories(Raytracing PRIVATE include ${OpenCL_INCLUDE_DIRS})
 target_link_libraries(Raytracing PRIVATE OpenCL::OpenCL)
