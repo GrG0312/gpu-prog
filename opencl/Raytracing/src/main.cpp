@@ -18,7 +18,7 @@ struct Ray
 {
 	Vector3 origin; //honnan jon
 	Vector3 direction; //merre megy
-	float wavelenght; //nanometerben
+	float wavelength; //nanometerben
 	float intensity;
 };
 
@@ -58,12 +58,17 @@ int main()
 	for (int i = 0; i < numRays; i++)
 	{
 		Ray r;
-		float offset = (i - numRays / 2) * 0.002f;
+		float offset = (i - numRays / 2) * 0.001f;
 
 		r.origin = { offset, 0.0f, -5.0f };
 		r.direction = { 0.0f, 0.0f, 1.0f };
 
-		r.wavelenght = 550.0f; //zöld
+		if (i % 2 == 0) {
+			r.wavelength = 400.0f; //ibolyakrk (erosebben kellene tornie)
+		}
+		else {
+			r.wavelength = 700.0f; //piros (kevesbe kellene tornie)
+		}
 		r.intensity = 1.0f;
 
 		rays.push_back(r);
@@ -118,8 +123,13 @@ int main()
 	err = queue.enqueueReadBuffer(gpuRaysBuffer, CL_TRUE, 0, sizeof(Ray) * numRays, modifiedRays.data());
 	checkError(err, "Failed to read data from GPU buffer!");
 
-	std::cout << "Original first ray Z: " << rays[0].origin.z << std::endl;
-	std::cout << "GPU changed it to Z: " << modifiedRays[0].origin.z << std::endl;
+	std::cout << "\n--- First 4 rays new dir after GPU ---" << std::endl;
+	for (int i = 0; i < 4; ++i) {
+		std::cout << "Ray #" << i << " [" << modifiedRays[i].wavelength << " nm] -> "
+			<< "New direction X: " << modifiedRays[i].direction.x
+			<< " | Y: " << modifiedRays[i].direction.y
+			<< " | Z: " << modifiedRays[i].direction.z << std::endl;
+	}
 
 	return 0;
 }
