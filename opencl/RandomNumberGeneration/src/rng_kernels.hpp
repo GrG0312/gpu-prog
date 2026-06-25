@@ -18,13 +18,13 @@ m = 2^32 = 4_294_967_296;
 
 */
 static const char* lcg_kernel_code = R"(
-	__kernel void lcg_kernel(__global unsigned int* output, unsigned long long seed, unsigned int numberOfRandoms) {
+	__kernel void lcg_kernel(__global unsigned int* output, unsigned long seed, unsigned int numberOfRandoms) {
 		unsigned int globalId = get_global_id(0);
-		unsigned long long state = seed + globalId * 1664525ULL;
+		unsigned long state = seed + globalId * 1664525UL;
 		unsigned int start = globalId * numberOfRandoms;
 
 		for (unsigned int i = 0; i < numberOfRandoms; ++i) {
-			state = (state * 1664525ULL + 1013904223ULL) & 0xFFFFFFFFULL; // Modulo 2^32
+			state = (state * 1664525UL + 1013904223UL) & 0xFFFFFFFFUL; // Modulo 2^32
 			output[start + i] = (unsigned int)state;
 		}
 	}
