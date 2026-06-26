@@ -1,82 +1,78 @@
-
 #include <CL/cl2.hpp>
-#include <fstream>
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <numeric>
+#include <string>
 
 #include "OpenCLUtils.hpp"
 #include "rng_kernels.hpp"
+#include "ChiSquareTest.hpp"
+#include "HistogramExport.hpp"
+#include "CPUBaseline.hpp"
 
 using namespace std;
 
-void runChiSquareTest(const vector<unsigned int>& hostOutput) {
-    size_t N = hostOutput.size();
+// ============================================================
+//  Constants
+// ============================================================
 
-    // A: Sturges-rule
-    // K = 1 + log2(N)
-    unsigned int K = static_cast<unsigned int>(1 + std::log2(N));
-    cout << "\n--- Statistics ---" << endl;
-    cout << "Number of generated numbers(N): " << N << endl;
-    cout << "Number of slot by Sturges-rule (K): " << K << endl;
+// Workgroup size used by every kernel. Must be a power of two and <= CL_DEVICE_MAX_WORK_GROUP_SIZE.
+static const size_t LOCAL_SIZE = 64;
 
-    // B: Counting the slots's frequencies
-    unsigned long long max_val = 4294967296ULL;
-    unsigned long long bin_width = max_val / K; // Length of a slot
+// All three generators produce this many values per work-item
+// Must be even so the Monte Carlo kernel can consume pairs
+static const unsigned int RANDOMS_PER_WORK_ITEM = 256;
 
-    vector<unsigned int> frequencies(K, 0);
-    for (unsigned int num : hostOutput) {
-        unsigned int bin_index = num / bin_width;
-        if (bin_index >= K) bin_index = K - 1; // Correction for rounding
-        frequencies[bin_index]++;
-    }
+static const unsigned int NUM_WORK_ITEMS = 1024;
+static const unsigned int N = NUM_WORK_ITEMS * RANDOMS_PER_WORK_ITEM; // 262 144
+static const unsigned int HIST_BINS = 50;
 
-    // C: Filtering (Throwing away those slots which have less than 600 numbers in it)
-    const unsigned int MIN_FREQUENCY = 600;
-    vector<unsigned int> valid_frequencies;
-    for (unsigned int i = 0; i < K; ++i) {
-        if (frequencies[i] >= MIN_FREQUENCY) {
-            valid_frequencies.push_back(frequencies[i]);
-        }
-        else {
-            cout << "Slot #" << i << " thrown, because it had less than " << MIN_FREQUENCY << " elements (" << frequencies[i] << ")" << endl;
-        }
-    }
+// ============================================================
+//  OpenCL helpers
+// ============================================================
+struct CLKernel { cl_program program; cl_kernel kernel; };
 
-    unsigned int valid_K = valid_frequencies.size();
-    if (valid_K == 0) {
-        cout << "Error: No valid slots left after filtering!" << endl;
-        return;
-    }
+CLKernel buildKernel(cl_context ctx, cl_device_id dev, const char* src, const char* funcName, const char* label)
+{
+    cl_int err;
+    cl_program prog = clCreateProgramWithSource(ctx, 1, &src, nullptr, &err);
+    checkError(err, label);
+    buildProgramWithLog(prog, dev, label);
+    cl_kernel k = clCreateKernel(prog, funcName, &err);
+    checkError(err, label);
+    return { prog, k };
+}
 
-    // D: Counting the expected frequency 
-    unsigned int total_remaining_elements = std::accumulate(valid_frequencies.begin(), valid_frequencies.end(), 0);
-    double expected_frequency = static_cast<double>(total_remaining_elements) / valid_K;
+// Reads START and END profiling timestamps from a cl_event and returns the elapsed time in milliseconds
+double profilingMs(cl_event ev)
+{
+    unsigned long t0, t1;
+    clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_START, sizeof(unsigned long), &t0, nullptr);
+    clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_END, sizeof(unsigned long), &t1, nullptr);
+    return static_cast<double>(t1 - t0) * 1e-6;
+}
 
-    // E: Counting Chi square
-    // O_i Observed frequency
-    // E_i Expected frequency
-    // chi^2 = sum( (O_i - E_i)^2 / E_i )
-    double chi_square_stat = 0.0;
-    for (unsigned int observed : valid_frequencies) {
-        double diff = observed - expected_frequency;
-        chi_square_stat += (diff * diff) / expected_frequency;
-    }
-
-    // F: Writing out the results
-    cout << "Remaining slots: " << valid_K << endl;
-    cout << "Necessary frequency for the slots: " << expected_frequency << endl;
-    cout << "Statistics: " << chi_square_stat << endl;
-    cout << "Degree of freedom(df): " << (valid_K - 1) << endl;
+// Sums partial hit counts and computes the Pi estimate
+// numPairs = total (x,y) pairs across all work-items
+double computePi(const vector<unsigned int>& partialHits, unsigned long numPairs)
+{
+    unsigned long total = 0;
+    for (unsigned int h : partialHits) total += h;
+    return 4.0 * static_cast<double>(total) / static_cast<double>(numPairs);
 }
 
 
+// ============================================================
+//  main function
+// ============================================================
 int main()
 {
-    #pragma region Generated
-    cl_int err;
+    // --------------------------------------------------------
+    //  OpenCL setup
+    // --------------------------------------------------------
+    #pragma region OpenCL Setup
 
+    cl_int err;
     cl_platform_id platform;
     cl_device_id deviceId;
 
@@ -88,66 +84,94 @@ int main()
     err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &deviceId, nullptr);
     checkError(err, "Failed to get OpenCL device.");
 
-    // Create an OpenCL context
-    cl_context context = clCreateContext(nullptr, 1, &deviceId, nullptr, nullptr, &err);
-    checkError(err, "Failed to create OpenCL context.");
-
-    cl_command_queue queue = clCreateCommandQueue(context, deviceId, 0, &err);
-    checkError(err, "Failed to create command queue.");
-
+    // Get the GPU name
     char deviceName[256];
     err = clGetDeviceInfo(deviceId, CL_DEVICE_NAME, sizeof(deviceName), deviceName, nullptr);
     checkError(err, "Failed to get device name.");
+
+    // Print data
+    cout << "Device: " << deviceName << endl;
+    cout << "N (values per generator): " << N << "  (work-items = " << NUM_WORK_ITEMS << "; randoms/item = " << RANDOMS_PER_WORK_ITEM << ")" << endl;
+
+    // Get max workgroup size for GPU device
+    size_t maxWGSize;
+    err = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(maxWGSize), &maxWGSize, nullptr);
+    checkError(err, "Failed to get device info");
+
+    if (LOCAL_SIZE > maxWGSize) {
+        cerr << "LOCAL_SIZE (" << LOCAL_SIZE << ") exceeds device max (" << maxWGSize << ")." << endl;
+        return 1;
+    }
+
+    cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &err);
+    checkError(err, "clCreateContext");
+
+    cl_command_queue queue = clCreateCommandQueue(ctx, device, CL_QUEUE_PROFILING_ENABLE, &err);
+    checkError(err, "clCreateCommandQueue");
+
     #pragma endregion
 
-    #pragma region Inicializing LCG
-    unsigned int lcg_numWorkItems = 1024;                  //Number of threads   
-    unsigned int lcg_randomsPerWorkItem = 160;             //Number of generated numbers per thread
-    unsigned int lcg_N = lcg_numWorkItems * lcg_randomsPerWorkItem; // 163840
-    unsigned long long lcg_seed = 43545ULL;
 
-    vector<unsigned int> lcg_hostOutput(lcg_N); // Store for LCG values
+    const size_t globalSize = NUM_WORK_ITEMS;
+    const size_t localSize = LOCAL_SIZE;
 
-    //Kernel
-    cl_program lcg_program = clCreateProgramWithSource(context, 1, &lcg_kernel_code, nullptr, &err);
-    checkError(err, "Failed to create LCG program.");
-    err = clBuildProgram(lcg_program, 1, &deviceId, nullptr, nullptr, nullptr);
-    checkError(err, "Failed to build LCG program.");
-    cl_kernel lcg_kernel = clCreateKernel(lcg_program, "lcg_kernel", &err);
-    checkError(err, "Failed to create LCG kernel.");
+    // Monte Carlo: each work-item contributes (RANDOMS_PER_WORK_ITEM / 2) pairs
+    const unsigned int MC_NUM_GROUPS = NUM_WORK_ITEMS / LOCAL_SIZE;
+    const unsigned long MC_TOTAL_PAIRS = static_cast<unsigned long>(NUM_WORK_ITEMS) * (RANDOMS_PER_WORK_ITEM / 2);
 
-    // GPU buffer building
-    cl_mem lcg_deviceOutput = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(unsigned int) * lcg_N, nullptr, &err);
-    checkError(err, "Failed to create LCG buffer.");
 
-    // Setting arguments for the kernel
-    err = clSetKernelArg(lcg_kernel, 0, sizeof(cl_mem), &lcg_deviceOutput);
-    err = clSetKernelArg(lcg_kernel, 1, sizeof(unsigned long long), &lcg_seed);
-    err |= clSetKernelArg(lcg_kernel, 2, sizeof(unsigned int), &lcg_randomsPerWorkItem);
-    checkError(err, "Failed to set LCG kernel args.");
+    // --------------------------------------------------------
+    //  LCG
+    // --------------------------------------------------------
+    #pragma region LCG
 
-    // Running the kernel
-    size_t lcg_globalSize = lcg_numWorkItems;
-    err = clEnqueueNDRangeKernel(queue, lcg_kernel, 1, nullptr, &lcg_globalSize, nullptr, 0, nullptr, nullptr);
-    checkError(err, "Failed to enqueue LCG kernel.");
+    // Seed for LCG
+    unsigned long lcg_seed = 43545UL;
+    // Results of LCG
+    vector<unsigned int> lcg_hostOutput(N);
 
-    //Reading back the values
-    err = clEnqueueReadBuffer(queue, lcg_deviceOutput, CL_TRUE, 0, sizeof(unsigned int) * lcg_N, lcg_hostOutput.data(), 0, nullptr, nullptr);
-    checkError(err, "Failed to read LCG buffer.");
+    CLKernel lcg = buildKernel(ctx, device, lcg_kernel_code, "lcg_kernel", "LCG");
+    cl_mem lcg_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
+    checkError(err, "LCG buffer error");
+
+    err = clSetKernelArg(lcg.kernel, 0, sizeof(cl_mem), &lcg_buf);
+    err |= clSetKernelArg(lcg.kernel, 1, sizeof(unsigned long), &lcg_seed);
+    err |= clSetKernelArg(lcg.kernel, 2, sizeof(unsigned int), &RANDOMS_PER_WORK_ITEM);
+    err |= clSetKernelArg(lcg.kernel, 3, sizeof(unsigned int) * LOCAL_SIZE, nullptr);
+    checkError(err, "LCG arguments error");
+
+    cl_event lcg_event;
+
+    err = clEnqueueNDRangeKernel(queue, lcg.kernel, 1, nullptr, &globalSize, &localSize, 0, nullptr, &lcg_event);
+    checkError(err, "LCG enqueue error");
+
+    err = clEnqueueReadBuffer(queue, lcg_buf, CL_TRUE, 0, sizeof(unsigned int) * N, lcg_output.data(), 0, nullptr, nullptr);
+    checkError(err, "LCG read error");
+
+    double lcg_ms = profilingMs(lcg_event);
+    clReleaseEvent(lcg_event);
+    cout << "\n[LCG]  GPU time: " << lcg_ms << " ms  (" << N << " values)" << endl;
+
     #pragma endregion
 
-    #pragma region LCG Chi-test
-    //Running the Chi-test
-    cout << "\n=== RUNNING LCG CHI-SQUARE TEST ===" << endl;
-    runChiSquareTest(lcg_hostOutput);
+    #pragma region LCG Chi-square + histogram
+
+    runChiSquareTest(lcg_output, "GPU LCG");
+    exportHistogramCSV(lcg_output, HIST_BINS, "histogram_lcg.csv");
+
     #pragma endregion
 
-    #pragma region Cleanup for LCG
-    // Csak a specifikus LCG objektumokat töröljük, a context és queue kell még a xorshiftnek!
-    clReleaseMemObject(lcg_deviceOutput);
-    clReleaseKernel(lcg_kernel);
-    clReleaseProgram(lcg_program);
+    #pragma region LCG Kernel Cleanup
+
+    // lcg_buf is intentionally NOT released here, it is passed to the Monte Carlo kernel later on
+    clReleaseKernel(lcg.kernel);
+    clReleaseProgram(lcg.program);
+
     #pragma endregion
+
+    // --------------------------------------------------------
+    //  XORSHIFT
+    // --------------------------------------------------------
 
     #pragma region Inicializing xorshift
     unsigned int xor_numWorkItems = 1024;                  // Number of threads   
@@ -171,8 +195,8 @@ int main()
 
     //Setting the arguments for 
     err = clSetKernelArg(xor_kernel, 0, sizeof(cl_mem), &xor_deviceOutput);
-    err = clSetKernelArg(xor_kernel, 1, sizeof(unsigned int), &xor_seed);
-    err = clSetKernelArg(xor_kernel, 2, sizeof(unsigned int), &xor_randomsPerWorkItem);
+    err |= clSetKernelArg(xor_kernel, 1, sizeof(unsigned int), &xor_seed);
+    err |= clSetKernelArg(xor_kernel, 2, sizeof(unsigned int), &xor_randomsPerWorkItem);
     checkError(err, "Failed to set xorshift kernel args.");
 
     // Running the kernel
@@ -184,6 +208,14 @@ int main()
     err = clEnqueueReadBuffer(queue, xor_deviceOutput, CL_TRUE, 0, sizeof(unsigned int) * xor_N, xor_hostOutput.data(), 0, nullptr, nullptr);
     checkError(err, "Failed to read xorshift buffer.");
     #pragma endregion
+
+    /*
+
+    //==================\\
+    ||      XOR CHI     ||
+    \\==================//
+
+    */
 
     #pragma region xorshift Chi-test
     //Running the Chi-test
@@ -203,5 +235,5 @@ int main()
     clReleaseContext(context);
     #pragma endregion
 
-        return 0;
+    return 0;
 }

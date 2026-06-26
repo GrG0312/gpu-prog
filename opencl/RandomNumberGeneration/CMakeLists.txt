@@ -12,3 +12,12 @@ add_executable(RandomNumberGeneration
 
 target_include_directories(RandomNumberGeneration PRIVATE include)
 target_link_libraries(RandomNumberGeneration PRIVATE OpenCL::OpenCL)
+
+# List headers explicitly so they appear in IDE project views
+target_sources(RandomNumberGeneration PRIVATE
+    include/OpenCLUtils.hpp
+    include/rng_kernels.hpp
+    include/ChiSquareTest.hpp
+    include/HistogramExport.hpp
+    include/CPUBaseline.hpp
+)
