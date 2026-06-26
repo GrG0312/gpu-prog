@@ -64,6 +64,26 @@ Vector3 reflect(Vector3 i, Vector3 n){
 	return sub(i, scalar_mul(n, 2.0f * dot_NI));
 }
 
+//Fresnel-egyenlet polarizalatlan fanyre ->https://www.rp-photonics.com/fresnel_equations.html jo megertesre
+float calculate_fresnel(Vector3 I, Vector3 N, float n1, float n2) {
+    float cos_i = -dot(N, I);
+    if (cos_i < 0.0f) cos_i = -cos_i; //boztonsagi iranyell, mert akkor is pozitiv cos kell, ha ki vagy be jon a feny
+
+    float eta = n1 / n2;
+    float sin2_t = eta * eta * (1.0f - cos_i * cos_i);
+    
+    //teljes belso visszaverodes eseten minden feny visszaverodik ->nem csokken az energia
+    if (sin2_t >= 1.0f) return 1.0f; 
+    
+    float cos_t = sqrt(1.0f - sin2_t);
+
+    //s-pol, p-pol komponensek
+    float r_s = ((n1 * cos_i) - (n2 * cos_t)) / ((n1 * cos_i) + (n2 * cos_t));
+    float r_p = ((n1 * cos_t) - (n2 * cos_i)) / ((n1 * cos_t) + (n2 * cos_i));
+
+    return (r_s * r_s + r_p * r_p) * 0.5f;
+}
+
 //atomi osszeadas, https://stackoverflow.com/questions/72044986/atomic-addition-to-floating-point-values-in-opencl-for-nvidia-gpus -> itt van gyorsabb ver, de csak nvidia-ra
 void atomic_add_float(__global float* addr, float val){
 	__global int* target = (__global int*)addr;
@@ -138,6 +158,10 @@ __kernel void test_raytrace(__global Ray* rays, int numRays, __global float* scr
 
 	//ELOSZOR levegeo!! -> levegobol lepunk vizbe
 	float eta=n_air/n_water;
+
+	float F_entry = calculate_fresnel(currentRay.direction, normal, n_air, n_water);
+    currentRay.intensity *= (1.0f - F_entry); //csak a bejuto resze a fenynek halad tovabb
+
 	currentRay.direction = refract(currentRay.direction, normal, eta);
 	currentRay.origin = hitPoint;
 
@@ -153,19 +177,25 @@ __kernel void test_raytrace(__global Ray* rays, int numRays, __global float* scr
 		hitPoint = add(currentRay.origin, scalar_mul(currentRay.direction, t_internal));
 		normal = normalize(hitPoint);
 
-		if(i==2){//elsodleges szivarvany
+		if(i==2){//elsodleges szivarvany, itt a feny visszapattan
+			float F_reflect = calculate_fresnel(currentRay.direction, normal, n_water, n_air);
+            currentRay.intensity *= F_reflect;
+
 			currentRay.direction = reflect(currentRay.direction, normal);
             currentRay.origin = hitPoint;
 		}
-		else if(i==3){
+		else if(i==3){//itt a feny athalad
+			float F_exit = calculate_fresnel(currentRay.direction, normal, n_water, n_air);
+
 			Vector3 exitDir=refract(currentRay.direction, normal, eta);
 			if(dot(exitDir, exitDir) > 0.0f) //ha sikeres a tores
 			{
+				currentRay.intensity *= (1.0f - F_exit); //ssak a kijuto resz megy a kepernyore
 				currentRay.direction=exitDir;
 				currentRay.origin=hitPoint;
 				break;
 			}
-			else{
+			else{//itt nem csokken az intensity mert teljes belso visszaverodes
 				currentRay.direction=reflect(currentRay.direction, normal);
 				currentRay.origin=hitPoint;
 			}
