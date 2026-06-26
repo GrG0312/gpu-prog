@@ -6,9 +6,7 @@
 #include <numeric>
 #include <string>
 
-using namespace std;
-
-double runChiSquareTest(const vector<unsigned int>& data, const string& label) {
+inline double runChiSquareTest(const std::vector<unsigned int>& data, const std::string& label) {
 
     size_t N = data.size();
     // A: Sturges-rule
@@ -16,16 +14,16 @@ double runChiSquareTest(const vector<unsigned int>& data, const string& label) {
     unsigned int K = static_cast<unsigned int>(1 + std::log2(N));
 
 
-    cout << "\n--- Chi-square test: " << label << " ---" << endl;
-    cout << "  N (total numbers) : " << sz << endl;
-    cout << "  K (bins, Sturges) : " << K << endl;
+    std::cout << "\n--- Chi-square test: " << label << " ---" << std::endl;
+    std::cout << "  N (total numbers) : " << N << std::endl;
+    std::cout << "  K (bins, Sturges) : " << K << std::endl;
 
 
     // B: Counting the slots's frequencies
     unsigned long long MAX_VAL = 4294967296ULL;
     unsigned long long BIN_WIDTH = MAX_VAL / K; // Length of a slot
 
-    vector<unsigned int> frequencies(K, 0u);
+    std::vector<unsigned int> frequencies(K, 0u);
 
     for (unsigned int num : data) {
         unsigned int bin_index = static_cast<unsigned int>(num / BIN_WIDTH);
@@ -35,7 +33,7 @@ double runChiSquareTest(const vector<unsigned int>& data, const string& label) {
 
     // C: Filtering (Throwing away those slots which have less than 600 numbers in it)
     const unsigned int MIN_FREQUENCY = 600;
-    vector<unsigned int> valid_frequencies;
+    std::vector<unsigned int> valid_frequencies;
 
     for (unsigned int i = 0; i < K; ++i) {
         if (frequencies[i] >= MIN_FREQUENCY)
@@ -44,18 +42,18 @@ double runChiSquareTest(const vector<unsigned int>& data, const string& label) {
         }
         else
         {
-            cout << "Slot #" << i << " thrown, because it had less than " << MIN_FREQUENCY << " elements (" << frequencies[i] << ")" << endl;
+            std::cout << "Slot #" << i << " thrown, because it had less than " << MIN_FREQUENCY << " elements (" << frequencies[i] << ")" << std::endl;
         }
     }
 
     unsigned int valid_K = static_cast<unsigned int>(valid_frequencies.size());
     if (valid_K == 0) {
-        cout << "ERROR: No valid slots left after filtering!" << endl;
+        std::cout << "ERROR: No valid slots left after filtering!" << std::endl;
         return -1.0;
     }
 
     // D: Counting the expected frequency 
-    unsigned int total_remaining_elements = accumulate(valid_frequencies.begin(), valid_frequencies.end(), 0u);
+    unsigned int total_remaining_elements = std::accumulate(valid_frequencies.begin(), valid_frequencies.end(), 0u);
     double expected_frequency = static_cast<double>(total_remaining_elements) / valid_K;
 
     // E: Counting Chi square
@@ -69,10 +67,10 @@ double runChiSquareTest(const vector<unsigned int>& data, const string& label) {
     }
 
     // F: Writing out the results
-    cout << "Remaining valid slots: "               << valid_K              << endl;
-    cout << "Necessary frequency for the slots: "   << expected_frequency   << endl;
-    cout << "ChiSq Statistics: "                    << chi_square_stat      << endl;
-    cout << "Degree of freedom(df): "               << (valid_K - 1)        << endl;
+    std::cout << "Remaining valid slots: " << valid_K << std::endl;
+    std::cout << "Necessary frequency for the slots: " << expected_frequency << std::endl;
+    std::cout << "ChiSq Statistics: " << chi_square_stat << std::endl;
+    std::cout << "Degree of freedom(df): " << (valid_K - 1) << std::endl;
 
     return chi_square_stat;
 }
