@@ -17,7 +17,7 @@ double runChiSquareTest(const vector<unsigned int>& data, const string& label) {
 
 
     cout << "\n--- Chi-square test: " << label << " ---" << endl;
-    cout << "  N (total numbers) : " << sz << endl;
+    cout << "  N (total numbers) : " << N << endl;
     cout << "  K (bins, Sturges) : " << K << endl;
 
 

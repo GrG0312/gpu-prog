@@ -5,7 +5,7 @@
 #include <string>
 
 #include "OpenCLUtils.hpp"
-#include "rng_kernels.hpp"
+#include "RngKernels.hpp"
 #include "ChiSquareTest.hpp"
 #include "HistogramExport.hpp"
 #include "CPUBaseline.hpp"
@@ -95,7 +95,7 @@ int main()
 
     // Get max workgroup size for GPU device
     size_t maxWGSize;
-    err = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(maxWGSize), &maxWGSize, nullptr);
+    err = clGetDeviceInfo(deviceId, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(maxWGSize), &maxWGSize, nullptr);
     checkError(err, "Failed to get device info");
 
     if (LOCAL_SIZE > maxWGSize) {
@@ -103,10 +103,10 @@ int main()
         return 1;
     }
 
-    cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &err);
+    cl_context ctx = clCreateContext(nullptr, 1, &deviceId, nullptr, nullptr, &err);
     checkError(err, "clCreateContext");
 
-    cl_command_queue queue = clCreateCommandQueue(ctx, device, CL_QUEUE_PROFILING_ENABLE, &err);
+    cl_command_queue queue = clCreateCommandQueue(ctx, deviceId, CL_QUEUE_PROFILING_ENABLE, &err);
     checkError(err, "clCreateCommandQueue");
 
     #pragma endregion
@@ -127,16 +127,16 @@ int main()
     #pragma region LCG
 
     // Seed for LCG
-    unsigned long lcg_seed = 43545UL;
+    cl_ulong lcg_seed = 43545UL; // Kasi: unsigned int
     // Results of LCG
     vector<unsigned int> lcg_hostOutput(N);
 
-    CLKernel lcg = buildKernel(ctx, device, lcg_kernel_code, "lcg_kernel", "LCG");
+    CLKernel lcg = buildKernel(ctx, deviceId, lcg_kernel_code, "lcg_kernel", "LCG");
     cl_mem lcg_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
     checkError(err, "LCG buffer error");
 
     err = clSetKernelArg(lcg.kernel, 0, sizeof(cl_mem), &lcg_buf);
-    err |= clSetKernelArg(lcg.kernel, 1, sizeof(unsigned long), &lcg_seed);
+    err |= clSetKernelArg(lcg.kernel, 1, sizeof(cl_ulong), &lcg_seed);
     err |= clSetKernelArg(lcg.kernel, 2, sizeof(unsigned int), &RANDOMS_PER_WORK_ITEM);
     err |= clSetKernelArg(lcg.kernel, 3, sizeof(unsigned int) * LOCAL_SIZE, nullptr);
     checkError(err, "LCG arguments error");
@@ -146,7 +146,7 @@ int main()
     err = clEnqueueNDRangeKernel(queue, lcg.kernel, 1, nullptr, &globalSize, &localSize, 0, nullptr, &lcg_event);
     checkError(err, "LCG enqueue error");
 
-    err = clEnqueueReadBuffer(queue, lcg_buf, CL_TRUE, 0, sizeof(unsigned int) * N, lcg_output.data(), 0, nullptr, nullptr);
+    err = clEnqueueReadBuffer(queue, lcg_buf, CL_TRUE, 0, sizeof(unsigned int) * N, lcg_hostOutput.data(), 0, nullptr, nullptr);
     checkError(err, "LCG read error");
 
     double lcg_ms = profilingMs(lcg_event);
@@ -157,8 +157,8 @@ int main()
 
     #pragma region LCG Chi-square + histogram
 
-    runChiSquareTest(lcg_output, "GPU LCG");
-    exportHistogramCSV(lcg_output, HIST_BINS, "histogram_lcg.csv");
+    runChiSquareTest(lcg_hostOutput, "GPU LCG");
+    exportHistogramCSV(lcg_hostOutput, HIST_BINS, "histogram_lcg.csv");
 
     #pragma endregion
 
@@ -183,7 +183,7 @@ int main()
     // Results for XORShift
     vector<unsigned int> xor_output(N);
 
-    CLKernel xorsh = buildKernel(ctx, device, xorshift_kernel_code, "xorshift_kernel", "XORShift");
+    CLKernel xorsh = buildKernel(ctx, deviceId, xorshift_kernel_code, "xorshift_kernel", "XORShift");
     cl_mem xor_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
     checkError(err, "XORShift buffer error");
 
@@ -235,7 +235,7 @@ int main()
     // Results for MT
     vector<unsigned int> mt_output(N);
 
-    CLKernel mt = buildKernel(ctx, device, mt_kernel_code, "mt_kernel", "MT");
+    CLKernel mt = buildKernel(ctx, deviceId, mt_kernel_code, "mt_kernel", "MT");
     cl_mem   mt_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
     checkError(err, "MT output buffer error");
 

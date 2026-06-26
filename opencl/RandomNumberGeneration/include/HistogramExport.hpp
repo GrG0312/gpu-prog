@@ -30,5 +30,5 @@ inline void exportHistogramCSV(const vector<unsigned int>& data,
     for (unsigned int i = 0; i < numBins; ++i)
         f << i << "," << freq[i] << "\n";
 
-    cout << "  Histogram CSV -> " << filename << sendl;
+    cout << "  Histogram CSV -> " << filename << endl;
 }

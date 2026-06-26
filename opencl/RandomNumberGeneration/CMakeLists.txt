@@ -16,7 +16,7 @@ target_link_libraries(RandomNumberGeneration PRIVATE OpenCL::OpenCL)
 # List headers explicitly so they appear in IDE project views
 target_sources(RandomNumberGeneration PRIVATE
     include/OpenCLUtils.hpp
-    include/rng_kernels.hpp
+    include/RngKernels.hpp
     include/ChiSquareTest.hpp
     include/HistogramExport.hpp
     include/CPUBaseline.hpp
