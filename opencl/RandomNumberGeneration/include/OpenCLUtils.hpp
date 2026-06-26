@@ -52,8 +52,8 @@ inline CLKernel buildKernel(cl_context ctx, cl_device_id deviceId, const char* s
 // Requires the command queue to have been created with CL_QUEUE_PROFILING_ENABLE.
 inline double profilingMs(cl_event ev)
 {
-    unsigned long t0, t1;
-    clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_START, sizeof(unsigned long), &t0, nullptr);
-    clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_END, sizeof(unsigned long), &t1, nullptr);
+    cl_ulong t0, t1;  // was: unsigned long
+    clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &t0, nullptr);
+    clGetEventProfilingInfo(ev, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &t1, nullptr);
     return static_cast<double>(t1 - t0) * 1e-6;
 }
