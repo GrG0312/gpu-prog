@@ -92,7 +92,7 @@ int main()
     // --------------------------------------------------------
     #pragma region LCG
 
-    cl_ulong   lcg_seed = 43545UL;//Kronos:64 bites, WIndows 32 bit, can't use unsigned long
+    cl_ulong lcg_seed = 43545UL; //Khronos:64 bit, Windows 32 bit
     vector<unsigned int> lcg_output(N);
 
     CLKernel lcg = buildKernel(ctx, deviceId, lcg_kernel_code, "lcg_kernel", "LCG");
@@ -110,6 +110,8 @@ int main()
     checkError(err, "LCG enqueue error");
     err = clEnqueueReadBuffer(queue, lcg_buf, CL_TRUE, 0, sizeof(unsigned int) * N, lcg_output.data(), 0, nullptr, nullptr);
     checkError(err, "LCG read error");
+
+    clFinish(queue);
 
     double lcg_ms = profilingMs(lcg_event);
     clReleaseEvent(lcg_event);
@@ -140,7 +142,7 @@ int main()
     // --------------------------------------------------------
     #pragma region XORShift
 
-    unsigned int         xor_seed = 86432U;
+    unsigned int xor_seed = 86432U;
     vector<unsigned int> xor_output(N);
 
     CLKernel xorsh = buildKernel(ctx, deviceId, xorshift_kernel_code, "xorshift_kernel", "XORShift");
@@ -158,6 +160,8 @@ int main()
     checkError(err, "XORShift enqueue error");
     err = clEnqueueReadBuffer(queue, xor_buf, CL_TRUE, 0, sizeof(unsigned int) * N, xor_output.data(), 0, nullptr, nullptr);
     checkError(err, "XORShift read error");
+
+    clFinish(queue);
 
     double xor_ms = profilingMs(xor_event);
     clReleaseEvent(xor_event);
@@ -192,9 +196,9 @@ int main()
     vector<unsigned int> mt_output(N);
 
     CLKernel mt = buildKernel(ctx, deviceId, mt_kernel_code, "mt_kernel", "MT");
-    cl_mem   mt_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
+    cl_mem mt_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
     checkError(err, "MT output buffer error");
-    cl_mem   mt_state = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * NUM_WORK_ITEMS * MT_STATE_WORDS, nullptr, &err);
+    cl_mem mt_state = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * NUM_WORK_ITEMS * MT_STATE_WORDS, nullptr, &err);
     checkError(err, "MT state buffer error");
 
     err = clSetKernelArg(mt.kernel, 0, sizeof(cl_mem), &mt_buf);
@@ -209,6 +213,8 @@ int main()
     checkError(err, "MT enqueue error");
     err = clEnqueueReadBuffer(queue, mt_buf, CL_TRUE, 0, sizeof(unsigned int) * N, mt_output.data(), 0, nullptr, nullptr);
     checkError(err, "MT read error");
+
+    clFinish(queue);
 
     double mt_ms = profilingMs(mt_event);
     clReleaseEvent(mt_event);
@@ -248,7 +254,7 @@ int main()
     cout << "  -----------|-----------|--------|--------------------" << endl;
     cout << "  LCG        | " << lcg_ms << " | " << N << " | " << (N / lcg_ms / 1000.0) << " M/ms" << endl;
     cout << "  XORShift   | " << xor_ms << " | " << N << " | " << (N / xor_ms / 1000.0) << " M/ms" << endl;
-    cout << "  MT         | " << mt_ms << " | " << N << " | " << (N / mt_ms / 1000.0) << " M/ms" << endl;
+    cout << "  MT         | " << mt_ms  << " | " << N << " | " << (N / mt_ms / 1000.0)  << " M/ms" << endl;
 
 
     // --------------------------------------------------------

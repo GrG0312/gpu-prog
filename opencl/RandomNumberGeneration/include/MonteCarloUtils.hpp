@@ -56,6 +56,8 @@ inline std::vector<unsigned int> runMonteCarlo(
         sizeof(unsigned int) * numGroups, partial.data(), 0, nullptr, nullptr);
     checkError(err, label);
 
+    clFinish(queue);
+
     outMs = profilingMs(ev);
     clReleaseEvent(ev);
 
