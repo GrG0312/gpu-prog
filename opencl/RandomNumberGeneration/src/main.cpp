@@ -177,6 +177,7 @@ int main()
     // --------------------------------------------------------
 
     #pragma region Inicializing XORShift
+
     // Seed for XORShift
     unsigned int xor_seed = 86432U;
     // Results for XORShift
@@ -219,6 +220,81 @@ int main()
     clReleaseProgram(xorsh.program);
 
     #pragma endregion
+
+
+
+    // --------------------------------------------------------
+    //  MERSENNE TWISTER
+    // --------------------------------------------------------
+
+    #pragma region Initializing Mersenne Twister
+
+    // Seed for MT
+    unsigned int mt_seed = 19650218U;
+    const unsigned int MT_STATE_WORDS = 624;
+    // Results for MT
+    vector<unsigned int> mt_output(N);
+
+    CLKernel mt = buildKernel(ctx, device, mt_kernel_code, "mt_kernel", "MT");
+    cl_mem   mt_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
+    checkError(err, "MT output buffer error");
+
+    cl_mem   mt_state = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * NUM_WORK_ITEMS * MT_STATE_WORDS, nullptr, &err);
+    checkError(err, "MT state buffer error");
+
+    err = clSetKernelArg(mt.kernel, 0, sizeof(cl_mem), &mt_buf);
+    err |= clSetKernelArg(mt.kernel, 1, sizeof(cl_mem), &mt_state);
+    err |= clSetKernelArg(mt.kernel, 2, sizeof(unsigned int), &mt_seed);
+    err |= clSetKernelArg(mt.kernel, 3, sizeof(unsigned int), &RANDOMS_PER_WORK_ITEM);
+    err |= clSetKernelArg(mt.kernel, 4, sizeof(unsigned int) * LOCAL_SIZE, nullptr);
+    checkError(err, "MT args error");
+
+    cl_event mt_event;
+    err = clEnqueueNDRangeKernel(queue, mt.kernel, 1, nullptr, &globalSize, &localSize, 0, nullptr, &mt_event);
+    checkError(err, "MT enqueue error");
+
+    err = clEnqueueReadBuffer(queue, mt_buf, CL_TRUE, 0, sizeof(unsigned int) * N, mt_output.data(), 0, nullptr, nullptr);
+    checkError(err, "MT read error");
+
+    double mt_ms = profilingMs(mt_event);
+    clReleaseEvent(mt_event);
+    clReleaseMemObject(mt_state); // state buffer no longer needed after generation
+    cout << "\n[MT]  GPU time: " << mt_ms << " ms  (" << N << " values)" << endl;
+
+    #pragma endregion
+
+    #pragma region MT Chi-square + histogram
+
+    runChiSquareTest(mt_output, "GPU Mersenne Twister");
+    exportHistogramCSV(mt_output, HIST_BINS, "histogram_mt.csv");
+
+    #pragma endregion
+
+    #pragma region MT Kernel Cleanup
+
+    clReleaseKernel(mt.kernel);
+    clReleaseProgram(mt.program);
+
+    #pragma endregion
+
+
+
+    // --------------------------------------------------------
+    //  CPU runs
+    // --------------------------------------------------------
+    runCPUBaseline(N, HIST_BINS);
+
+
+
+    // --------------------------------------------------------
+    //  Performance summary
+    // --------------------------------------------------------
+    cout << "\n=== PERFORMANCE SUMMARY ===" << endl;
+    cout << "  Generator  | Time (ms) | Values    | Throughput" << endl;
+    cout << "  -----------|-----------|-----------|--------------------" << endl;
+    cout << "  LCG        | " << lcg_ms << " | " << N << " | " << (N / lcg_ms / 1000.0) << " M/ms" << endl;
+    cout << "  XORShift   | " << xor_ms << " | " << N << " | " << (N / xor_ms / 1000.0) << " M/ms" << endl;
+    cout << "  MT         | " << mt_ms  << " | " << N << " | " << (N / mt_ms / 1000.0)  << " M/ms" << endl;
 
     return 0;
 }
