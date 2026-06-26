@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES
 #include <CL/cl2.hpp>
 #include <iostream>
 #include <vector>
@@ -23,7 +24,7 @@ static const size_t LOCAL_SIZE = 64;
 
 // All three generators produce this many values per work-item.
 // Must be even so the Monte Carlo kernel can consume pairs.
-static const unsigned int RANDOMS_PER_WORK_ITEM = 256;
+static const unsigned int RANDOMS_PER_WORK_ITEM = 2^40;
 
 static const unsigned int NUM_WORK_ITEMS = 1024;
 static const unsigned int N = NUM_WORK_ITEMS * RANDOMS_PER_WORK_ITEM; // 262 144
@@ -91,7 +92,7 @@ int main()
     // --------------------------------------------------------
     #pragma region LCG
 
-    unsigned long        lcg_seed = 43545UL;
+    cl_ulong   lcg_seed = 43545UL;//Kronos:64 bites, WIndows 32 bit, can't use unsigned long
     vector<unsigned int> lcg_output(N);
 
     CLKernel lcg = buildKernel(ctx, deviceId, lcg_kernel_code, "lcg_kernel", "LCG");
@@ -99,7 +100,7 @@ int main()
     checkError(err, "LCG buffer error");
 
     err = clSetKernelArg(lcg.kernel, 0, sizeof(cl_mem), &lcg_buf);
-    err |= clSetKernelArg(lcg.kernel, 1, sizeof(unsigned long), &lcg_seed);
+    err |= clSetKernelArg(lcg.kernel, 1, sizeof(cl_ulong), &lcg_seed);
     err |= clSetKernelArg(lcg.kernel, 2, sizeof(unsigned int), &RANDOMS_PER_WORK_ITEM);
     err |= clSetKernelArg(lcg.kernel, 3, sizeof(unsigned int) * LOCAL_SIZE, nullptr);
     checkError(err, "LCG arguments error");
