@@ -24,7 +24,7 @@ static const size_t LOCAL_SIZE = 64;
 
 // All three generators produce this many values per work-item.
 // Must be even so the Monte Carlo kernel can consume pairs.
-static const unsigned int RANDOMS_PER_WORK_ITEM = 2^40;
+static const unsigned int RANDOMS_PER_WORK_ITEM = 256;
 
 static const unsigned int NUM_WORK_ITEMS = 1024;
 static const unsigned int N = NUM_WORK_ITEMS * RANDOMS_PER_WORK_ITEM; // 262 144
@@ -308,6 +308,103 @@ int main()
     clReleaseProgram(mc_pi.program);
 
     #pragma endregion
+
+
+
+    // --------------------------------------------------------
+    //  MONTE CARLO S&P 500 OPTION ESTIMATION
+    // --------------------------------------------------------
+    #pragma region Monte Carlo Stock (S&P 500)
+
+    const unsigned long MC_STOCK_TOTAL_PATHS = MC_TOTAL_PAIRS;
+     
+    //Building the kernel for the GPU
+    CLKernel mc_stock = buildKernel(ctx, deviceId, monte_carlo_stock_kernel_code, "monte_carlo_stock_kernel", "MC-Stock");
+
+    // Taking the buffer meory in the GPU
+    cl_mem mc_stock_hits = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * MC_NUM_GROUPS, nullptr, &err);
+
+    // Lambda function for the frequency,(getting the Gpu senquences and the dividing with the number of workgroups then multiplicate with 100 for the Percentig)
+    auto computeStockProb = [&](const vector<unsigned int>& partial) -> double {
+        unsigned long total = 0;
+        for (unsigned int h : partial) {
+            total += h;
+        }
+        return (static_cast<double>(total) / static_cast<double>(MC_STOCK_TOTAL_PATHS)) * 100.0;
+        };
+
+    // -------------------------------------------------------------------------
+    // THEORETICAL BLACK-SCHOLES PROBABILITY CALCULATION
+    // -------------------------------------------------------------------------
+    // This constant represents the analytical probability that the terminal 
+    // stock price S_T will exceed the Strike price (K) at maturity, 
+    // derived from the Black-Scholes-Merton framework.
+    //
+    // MATHEMATICAL FORMULA:
+    // P(S_T > K) = Phi(d2)
+    //
+    // Where Phi(x) is the Cumulative Distribution Function (CDF) of a 
+    // Standard Normal Distribution, and d2 is defined as:
+    //
+    //        ln(S0 / K) + (mu - 0.5 * sigma^2) * T
+    //   d2 = -------------------------------------
+    //                  sigma * sqrt(T)
+    //
+    // In LaTeX format:
+    // d2 = ( log(S0 / K) + (mu - 0.5f * sigma * sigma) * T ) / ( sigma * sqrt(T) )
+    //
+    // STEP-BY-STEP SUBSTITUTION WITH CURRENT PARAMETERS:
+    // S0 = 5500.0, K = 6200.0, mu = 0.10, sigma = 0.18, T = 1.0
+    // 1. Log Return Ratio:   ln(5500 / 6200)               = -0.11985
+    // 2. Deterministic Drift: (0.10 - 0.5 * 0.18^2) * 1.0   =  0.08380
+    // 3. Numerator Total:    -0.11985 + 0.08380            = -0.03605
+    // 4. Denominator Total:  0.18 * sqrt(1.0)              =  0.18000
+    // 5. Final d2 Value:     -0.03605 / 0.18000            = -0.20028
+    //
+    // 6. Phi(-0.20028) yields exactly 0.420593 -> 42.0593%
+
+    const double THEORETICAL_PROB = 42.0593;
+
+    cout << "\n=== MONTE CARLO STOCK OPTION ESTIMATION (paths: " << MC_STOCK_TOTAL_PATHS << ") ===" << endl;
+    cout << "  Theoretical Probability (S_T > 105): " << THEORETICAL_PROB << " %" << endl;
+    cout << endl;
+    cout << "  Generator  | Strike Prob % | Abs. error   | MC time" << endl;
+    cout << "  -----------|---------------|--------------|--------" << endl;
+
+    double stock_mc_ms;//time
+    vector<unsigned int> stock_partial;//values
+
+    // 1. LCG Simulation
+    stock_partial = runMonteCarlo(queue, mc_stock.kernel, lcg_buf, mc_stock_hits, RANDOMS_PER_WORK_ITEM, MC_NUM_GROUPS, globalSize, localSize, stock_mc_ms, "MC-Stock-LCG");
+    double prob_lcg = computeStockProb(stock_partial);
+    cout << "  LCG        | " << prob_lcg << " %      | " << abs(prob_lcg - THEORETICAL_PROB) << "          | " << stock_mc_ms << " ms" << endl;
+
+    // 2. XORShift Simulation
+    stock_partial = runMonteCarlo(queue, mc_stock.kernel, xor_buf, mc_stock_hits, RANDOMS_PER_WORK_ITEM, MC_NUM_GROUPS, globalSize, localSize, stock_mc_ms, "MC-Stock-XORShift");
+    double prob_xor = computeStockProb(stock_partial);
+    cout << "  XORShift   | " << prob_xor << " %      | " << abs(prob_xor - THEORETICAL_PROB) << "          | " << stock_mc_ms << " ms" << endl;
+
+    // 3. Mersenne Twister Simulation
+    stock_partial = runMonteCarlo(queue, mc_stock.kernel, mt_buf, mc_stock_hits, RANDOMS_PER_WORK_ITEM, MC_NUM_GROUPS, globalSize, localSize, stock_mc_ms, "MC-Stock-MT");
+    double prob_mt = computeStockProb(stock_partial);
+    cout << "  MT         | " << prob_mt << " %      | " << abs(prob_mt - THEORETICAL_PROB) << "          | " << stock_mc_ms << " ms" << endl;
+
+    #pragma endregion
+
+    #pragma region MC Stock Kernel Cleanup
+
+    
+
+    #pragma region MC Stock Kernel Cleanup
+    //Cleanup
+    clReleaseMemObject(mc_stock_hits);
+    clReleaseKernel(mc_stock.kernel);
+    clReleaseProgram(mc_stock.program);
+
+#   pragma endregion
+
+
+
 
 
     // --------------------------------------------------------
