@@ -120,6 +120,7 @@ int main()
     const unsigned long MC_TOTAL_PAIRS = static_cast<unsigned long>(NUM_WORK_ITEMS) * (RANDOMS_PER_WORK_ITEM / 2);
 
 
+
     // --------------------------------------------------------
     //  LCG
     // --------------------------------------------------------
@@ -169,70 +170,54 @@ int main()
 
     #pragma endregion
 
+
+
     // --------------------------------------------------------
     //  XORSHIFT
     // --------------------------------------------------------
 
-    #pragma region Inicializing xorshift
-    unsigned int xor_numWorkItems = 1024;                  // Number of threads   
-    unsigned int xor_randomsPerWorkItem = 200;            //Number of generated numbers per thread
-    unsigned int xor_N = xor_numWorkItems * xor_randomsPerWorkItem;
+    #pragma region Inicializing XORShift
+    // Seed for XORShift
     unsigned int xor_seed = 86432U;
+    // Results for XORShift
+    vector<unsigned int> xor_output(N);
 
-    vector<unsigned int> xor_hostOutput(xor_N); // Store for xorshift values
+    CLKernel xorsh = buildKernel(ctx, device, xorshift_kernel_code, "xorshift_kernel", "XORShift");
+    cl_mem xor_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
+    checkError(err, "XORShift buffer error");
 
-    //Kernel
-    cl_program xor_program = clCreateProgramWithSource(context, 1, &xorshift_kernel_code, nullptr, &err);
-    checkError(err, "Failed to create xorshift program.");
-    err = clBuildProgram(xor_program, 1, &deviceId, nullptr, nullptr, nullptr);
-    checkError(err, "Failed to build xorshift program.");
-    cl_kernel xor_kernel = clCreateKernel(xor_program, "xorshift_kernel", &err);
-    checkError(err, "Failed to create xorshift kernel.");
+    err = clSetKernelArg(xorsh.kernel, 0, sizeof(cl_mem), &xor_buf);
+    err |= clSetKernelArg(xorsh.kernel, 1, sizeof(unsigned int), &xor_seed);
+    err |= clSetKernelArg(xorsh.kernel, 2, sizeof(unsigned int), &RANDOMS_PER_WORK_ITEM);
+    err |= clSetKernelArg(xorsh.kernel, 3, sizeof(unsigned int) * LOCAL_SIZE, nullptr);
+    checkError(err, "XORShift args error");
 
-    // GPU buffer building
-    cl_mem xor_deviceOutput = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(unsigned int) * xor_N, nullptr, &err);
-    checkError(err, "Failed to create xorshift buffer.");
+    cl_event xor_event;
 
-    //Setting the arguments for 
-    err = clSetKernelArg(xor_kernel, 0, sizeof(cl_mem), &xor_deviceOutput);
-    err |= clSetKernelArg(xor_kernel, 1, sizeof(unsigned int), &xor_seed);
-    err |= clSetKernelArg(xor_kernel, 2, sizeof(unsigned int), &xor_randomsPerWorkItem);
-    checkError(err, "Failed to set xorshift kernel args.");
+    err = clEnqueueNDRangeKernel(queue, xorsh.kernel, 1, nullptr, &globalSize, &localSize, 0, nullptr, &xor_event);
+    checkError(err, "XORShift enqueue error");
 
-    // Running the kernel
-    size_t xor_globalSize = xor_numWorkItems;
-    err = clEnqueueNDRangeKernel(queue, xor_kernel, 1, nullptr, &xor_globalSize, nullptr, 0, nullptr, nullptr);
-    checkError(err, "Failed to enqueue xorshift kernel.");
+    err = clEnqueueReadBuffer(queue, xor_buf, CL_TRUE, 0, sizeof(unsigned int) * N, xor_output.data(), 0, nullptr, nullptr);
+    checkError(err, "XORShift read");
 
-    //Reading back the values
-    err = clEnqueueReadBuffer(queue, xor_deviceOutput, CL_TRUE, 0, sizeof(unsigned int) * xor_N, xor_hostOutput.data(), 0, nullptr, nullptr);
-    checkError(err, "Failed to read xorshift buffer.");
+    double xor_ms = profilingMs(xor_event);
+    clReleaseEvent(xor_event);
+
+    cout << "\n[XORShift]  GPU time: " << xor_ms << " ms  (" << N << " values)" << endl;
     #pragma endregion
 
-    /*
+    #pragma region XORShift Chi-square + histogram
 
-    //==================\\
-    ||      XOR CHI     ||
-    \\==================//
+    runChiSquareTest(xor_output, "GPU XORShift");
+    exportHistogramCSV(xor_output, HIST_BINS, "histogram_xorshift.csv");
 
-    */
-
-    #pragma region xorshift Chi-test
-    //Running the Chi-test
-    cout << "\n=== RUNNING XORSHIFT CHI-SQUARE TEST ===" << endl;
-    runChiSquareTest(xor_hostOutput);
     #pragma endregion
 
-    #pragma region Cleanup for xorshift
-    clReleaseMemObject(xor_deviceOutput);
-    clReleaseKernel(xor_kernel);
-    clReleaseProgram(xor_program);
-    #pragma endregion
-    //5 percent rule 
-    #pragma region Global OpenCL Cleanup
-    //Closing the context and the que
-    clReleaseCommandQueue(queue);
-    clReleaseContext(context);
+    #pragma region XORShift Kernel Cleanup
+
+    clReleaseKernel(xorsh.kernel);
+    clReleaseProgram(xorsh.program);
+
     #pragma endregion
 
     return 0;
