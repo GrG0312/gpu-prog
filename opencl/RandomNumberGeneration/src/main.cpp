@@ -92,7 +92,7 @@ int main()
     // --------------------------------------------------------
     #pragma region LCG
 
-    cl_ulong lcg_seed = 43545UL; //Khronos:64 bit, Windows 32 bit
+    cl_ulong lcg_seed = 43545ULL; // cl_ulong is always 64-bit on every platform; matches OpenCL C unsigned long
     vector<unsigned int> lcg_output(N);
 
     CLKernel lcg = buildKernel(ctx, deviceId, lcg_kernel_code, "lcg_kernel", "LCG");
@@ -122,8 +122,8 @@ int main()
 
     #pragma region LCG Chi-square + histogram
 
-    runChiSquareTest(lcg_hostOutput, "GPU LCG");
-    exportHistogramCSV(lcg_hostOutput, HIST_BINS, "histogram_lcg.csv");
+    runChiSquareTest(lcg_output, "GPU LCG");
+    exportHistogramCSV(lcg_output, HIST_BINS, "histogram_lcg.csv");
 
     #pragma endregion
 
@@ -142,7 +142,7 @@ int main()
     // --------------------------------------------------------
     #pragma region XORShift
 
-    unsigned int xor_seed = 86432U;
+    cl_uint xor_seed = 86432U;
     vector<unsigned int> xor_output(N);
 
     CLKernel xorsh = buildKernel(ctx, deviceId, xorshift_kernel_code, "xorshift_kernel", "XORShift");
@@ -150,7 +150,7 @@ int main()
     checkError(err, "XORShift buffer error");
 
     err = clSetKernelArg(xorsh.kernel, 0, sizeof(cl_mem), &xor_buf);
-    err |= clSetKernelArg(xorsh.kernel, 1, sizeof(unsigned int), &xor_seed);
+    err |= clSetKernelArg(xorsh.kernel, 1, sizeof(cl_uint), &xor_seed);
     err |= clSetKernelArg(xorsh.kernel, 2, sizeof(unsigned int), &RANDOMS_PER_WORK_ITEM);
     err |= clSetKernelArg(xorsh.kernel, 3, sizeof(unsigned int) * LOCAL_SIZE, nullptr);
     checkError(err, "XORShift args error");
@@ -191,8 +191,8 @@ int main()
     // --------------------------------------------------------
     #pragma region Mersenne Twister
 
-    unsigned int         mt_seed = 19650218U;
-    const unsigned int   MT_STATE_WORDS = 624;
+    cl_uint              mt_seed = 19650218U;
+    const cl_uint        MT_STATE_WORDS = 624;
     vector<unsigned int> mt_output(N);
 
     CLKernel mt = buildKernel(ctx, deviceId, mt_kernel_code, "mt_kernel", "MT");
@@ -203,7 +203,7 @@ int main()
 
     err = clSetKernelArg(mt.kernel, 0, sizeof(cl_mem), &mt_buf);
     err |= clSetKernelArg(mt.kernel, 1, sizeof(cl_mem), &mt_state);
-    err |= clSetKernelArg(mt.kernel, 2, sizeof(unsigned int), &mt_seed);
+    err |= clSetKernelArg(mt.kernel, 2, sizeof(cl_uint), &mt_seed);
     err |= clSetKernelArg(mt.kernel, 3, sizeof(unsigned int), &RANDOMS_PER_WORK_ITEM);
     err |= clSetKernelArg(mt.kernel, 4, sizeof(unsigned int) * LOCAL_SIZE, nullptr);
     checkError(err, "MT args error");
@@ -268,16 +268,16 @@ int main()
     #pragma region Monte Carlo Pi estimation
 
     // numPairs = total (x,y) pairs across all work-items
-    const unsigned long MC_TOTAL_PAIRS = static_cast<unsigned long>(NUM_WORK_ITEMS) * (RANDOMS_PER_WORK_ITEM / 2);
+    const cl_ulong MC_TOTAL_PAIRS = static_cast<cl_ulong>(NUM_WORK_ITEMS) * (RANDOMS_PER_WORK_ITEM / 2);
 
     CLKernel mc_pi = buildKernel(ctx, deviceId, monte_carlo_pi_kernel_code, "monte_carlo_pi_kernel", "MC-Pi");
-    cl_mem   mc_hits = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * MC_NUM_GROUPS, nullptr, &err);
+    cl_mem   mc_hits = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(cl_uint) * MC_NUM_GROUPS, nullptr, &err);
     checkError(err, "MC hits buffer error");
 
     // Sums partial hit counts and estimates Pi
-    auto computePi = [&](const vector<unsigned int>& partial) -> double {
-        unsigned long total = 0;
-        for (unsigned int h : partial) total += h;
+    auto computePi = [&](const vector<cl_uint>& partial) -> double {
+        cl_ulong total = 0;
+        for (cl_uint h : partial) total += h;
         return 4.0 * static_cast<double>(total) / static_cast<double>(MC_TOTAL_PAIRS);
         };
 
@@ -316,18 +316,19 @@ int main()
     // --------------------------------------------------------
     #pragma region Monte Carlo Stock (S&P 500)
 
-    const unsigned long MC_STOCK_TOTAL_PATHS = MC_TOTAL_PAIRS;
+    const cl_ulong MC_STOCK_TOTAL_PATHS = MC_TOTAL_PAIRS;
      
     //Building the kernel for the GPU
     CLKernel mc_stock = buildKernel(ctx, deviceId, monte_carlo_stock_kernel_code, "monte_carlo_stock_kernel", "MC-Stock");
 
     // Taking the buffer meory in the GPU
-    cl_mem mc_stock_hits = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * MC_NUM_GROUPS, nullptr, &err);
+    cl_mem mc_stock_hits = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(cl_uint) * MC_NUM_GROUPS, nullptr, &err);
+    checkError(err, "MC Stock Hits error");
 
     // Lambda function for the frequency,(getting the Gpu senquences and the dividing with the number of workgroups then multiplicate with 100 for the Percentig)
-    auto computeStockProb = [&](const vector<unsigned int>& partial) -> double {
-        unsigned long total = 0;
-        for (unsigned int h : partial) {
+    auto computeStockProb = [&](const vector<cl_uint>& partial) -> double {
+        cl_ulong total = 0;
+        for (cl_uint h : partial) {
             total += h;
         }
         return (static_cast<double>(total) / static_cast<double>(MC_STOCK_TOTAL_PATHS)) * 100.0;
@@ -366,7 +367,7 @@ int main()
     const double THEORETICAL_PROB = 42.0593;
 
     cout << "\n=== MONTE CARLO STOCK OPTION ESTIMATION (paths: " << MC_STOCK_TOTAL_PATHS << ") ===" << endl;
-    cout << "  Theoretical Probability (S_T > 105): " << THEORETICAL_PROB << " %" << endl;
+    cout << "  Theoretical Probability (S_T > Strike 6200): " << THEORETICAL_PROB << " %" << endl;
     cout << endl;
     cout << "  Generator  | Strike Prob % | Abs. error   | MC time" << endl;
     cout << "  -----------|---------------|--------------|--------" << endl;
@@ -391,17 +392,14 @@ int main()
 
     #pragma endregion
 
-    #pragma region MC Stock Kernel Cleanup
 
+    #pragma region MC Stock Kernel Cleanup
     
-
-    #pragma region MC Stock Kernel Cleanup
-    //Cleanup
     clReleaseMemObject(mc_stock_hits);
     clReleaseKernel(mc_stock.kernel);
     clReleaseProgram(mc_stock.program);
 
-#   pragma endregion
+    #pragma endregion
 
 
 

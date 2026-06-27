@@ -1,7 +1,7 @@
 #pragma once
 
 // ====================================================================
-//  Add additional Monte Carlo kernel strings below
+//  Add additional Monte Carlo kernel strings in this file
 //  Each kernel should follow the same workgroup-reduction pattern:
 //      accumulate a per-work-item result into __local memory, then
 //      have lane 0 reduce and write one partial result per workgroup
@@ -81,9 +81,9 @@ static const char* monte_carlo_pi_kernel_code = R"(
 
 /*
 
-//===========================\\
-||   MONTE CARLO PI KERNEL   ||
-\\===========================//
+//==============================\\
+||   MONTE CARLO STOCK KERNEL   ||
+\\==============================//
 *PARAMS
  * @param partialHits   [out] Global buffer storing the total successful paths per work-group.
  * @param rngBuffer     [in]  Global buffer containing pre-generated raw 32-bit unsigned random numbers.
@@ -105,29 +105,29 @@ static const char* monte_carlo_stock_kernel_code = R"(
     __kernel void monte_carlo_stock_kernel(
         __global unsigned int* partialHits, 
         __global unsigned int* rngBuffer,    
-        unsigned int       numberOfRandoms, 
+        unsigned int numberOfRandoms, 
         __local  unsigned int* localHits)   
     {
-        unsigned int globalId  = get_global_id(0);
-        unsigned int localId   = get_local_id(0);
+        unsigned int globalId = get_global_id(0);
+        unsigned int localId = get_local_id(0);
         unsigned int localSize = get_local_size(0);
-        unsigned int groupId   = get_group_id(0);
+        unsigned int groupId = get_group_id(0);
 
         // Finantial Constants for the simulation (i took the values of S&P500 index fund, stack)
-        float S0 = 5500.0f;       // starting price
-        float Strike = 6200.0f;   // Expected price
-        float mu = 0.10;        // Expected growth
-        float sigma = 0.18;     // volatolity
-        float T = 1.0f;          // time, 1 year
+        float S0 = 5500.0f; // starting price
+        float Strike = 6200.0f; // Expected price
+        float mu = 0.10; // Expected growth
+        float sigma = 0.18; // volatolity
+        float T = 1.0f; // time, 1 year
 
-        unsigned int base     = globalId * numberOfRandoms;
+        unsigned int base = globalId * numberOfRandoms;
         unsigned int numPairs = numberOfRandoms / 2;
-        unsigned int hits     = 0;
+        unsigned int hits = 0;
 
         for (unsigned int i = 0; i < numPairs; ++i) {
             //normalising between 0 and 1
-            float u1 = (float)rngBuffer[base + 2 * i]    
-            float u2 = (float)rngBuffer[base + 2 * i + 1] 
+            float u1 = (float)rngBuffer[base + 2 * i];
+            float u2 = (float)rngBuffer[base + 2 * i + 1];
             
             // against log(0)
             if (u1 < 1e-7f) u1 = 1e-7f; 
