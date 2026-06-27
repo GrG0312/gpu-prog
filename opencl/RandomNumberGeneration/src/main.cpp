@@ -122,15 +122,15 @@ int main()
 
     #pragma region LCG Chi-square + histogram
 
-    runChiSquareTest(lcg_output, "GPU LCG");
-    exportHistogramCSV(lcg_output, HIST_BINS, "histogram_lcg.csv");
+    runChiSquareTest(lcg_hostOutput, "GPU LCG");
+    exportHistogramCSV(lcg_hostOutput, HIST_BINS, "histogram_lcg.csv");
 
     #pragma endregion
 
 
     #pragma region LCG Kernel Cleanup
 
-    // lcg_buf is intentionally NOT released here — reused by Monte Carlo below
+    // lcg_buf is intentionally NOT released here ï¿½ reused by Monte Carlo below
     clReleaseKernel(lcg.kernel);
     clReleaseProgram(lcg.program);
 
@@ -146,7 +146,7 @@ int main()
     vector<unsigned int> xor_output(N);
 
     CLKernel xorsh = buildKernel(ctx, deviceId, xorshift_kernel_code, "xorshift_kernel", "XORShift");
-    cl_mem   xor_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
+    cl_mem xor_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
     checkError(err, "XORShift buffer error");
 
     err = clSetKernelArg(xorsh.kernel, 0, sizeof(cl_mem), &xor_buf);
