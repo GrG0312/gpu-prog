@@ -19,7 +19,6 @@ using namespace std;
 //  Constants
 // ============================================================
 
-// Workgroup size used by every kernel. Must be a power of two and <= CL_DEVICE_MAX_WORK_GROUP_SIZE.
 static const size_t LOCAL_SIZE = 64;
 
 // All three generators produce this many values per work-item.
@@ -96,7 +95,7 @@ int main()
     vector<unsigned int> lcg_output(N);
 
     CLKernel lcg = buildKernel(ctx, deviceId, lcg_kernel_code, "lcg_kernel", "LCG");
-    cl_mem   lcg_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
+    cl_mem lcg_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sizeof(unsigned int) * N, nullptr, &err);
     checkError(err, "LCG buffer error");
 
     err = clSetKernelArg(lcg.kernel, 0, sizeof(cl_mem), &lcg_buf);
@@ -191,8 +190,8 @@ int main()
     // --------------------------------------------------------
     #pragma region Mersenne Twister
 
-    cl_uint              mt_seed = 19650218U;
-    const cl_uint        MT_STATE_WORDS = 624;
+    cl_uint mt_seed = 19650218U;
+    const cl_uint MT_STATE_WORDS = 624;
     vector<unsigned int> mt_output(N);
 
     CLKernel mt = buildKernel(ctx, deviceId, mt_kernel_code, "mt_kernel", "MT");
@@ -243,7 +242,7 @@ int main()
     // --------------------------------------------------------
     //  CPU baseline
     // --------------------------------------------------------
-    runCPUBaseline(N, HIST_BINS);
+    double cpu_ms = runCPUBaseline(N, HIST_BINS);
 
 
     // --------------------------------------------------------
@@ -255,6 +254,7 @@ int main()
     cout << "  LCG        | " << lcg_ms << " | " << N << " | " << (N / lcg_ms / 1000.0) << " M/ms" << endl;
     cout << "  XORShift   | " << xor_ms << " | " << N << " | " << (N / xor_ms / 1000.0) << " M/ms" << endl;
     cout << "  MT         | " << mt_ms  << " | " << N << " | " << (N / mt_ms / 1000.0)  << " M/ms" << endl;
+    cout << "  CPU        | " << cpu_ms << " | " << N << " | " << (N / cpu_ms / 1000.0) << " M/ms (single core)" << endl;
 
 
     // --------------------------------------------------------

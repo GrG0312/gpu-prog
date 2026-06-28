@@ -115,20 +115,20 @@ MT19937 parameters:
 
 */
 static const char* mt_kernel_code = R"(
-    #define MT_N          624
-    #define MT_M          397
-    #define MT_MATRIX_A   0x9908B0DFU
+    #define MT_N 624
+    #define MT_M 397
+    #define MT_MATRIX_A 0x9908B0DFU
     #define MT_UPPER_MASK 0x80000000U // Most significant bit?
     #define MT_LOWER_MASK 0x7FFFFFFFU // Least significant bits?
 
     // Tempering
-    #define MT_TEMPER_B   0x9D2C5680U
-    #define MT_TEMPER_C   0xEFC60000U
-    #define MT_TEMPER_S   7
-    #define MT_TEMPER_T   15
-    #define MT_TEMPER_U   11
-    #define MT_TEMPER_L   18
-    #define MT_INIT_F     1812433253U
+    #define MT_TEMPER_B 0x9D2C5680U
+    #define MT_TEMPER_C 0xEFC60000U
+    #define MT_TEMPER_S 7
+    #define MT_TEMPER_T 15
+    #define MT_TEMPER_U 11
+    #define MT_TEMPER_L 18
+    #define MT_INIT_F 1812433253U
 
     __kernel void mt_kernel(
         __global unsigned int* output,
@@ -142,9 +142,12 @@ static const char* mt_kernel_code = R"(
         unsigned int localSize = get_local_size(0);
 
         // Each work-item owns MT_N consecutive words in stateBuffer
+        // Words are non-trivial starting numbers
         __global unsigned int* mt = stateBuffer + globalId * MT_N;
 
         // Seeder
+        // Each word is generated from the previous one using multiply-and-mix operation
+        // The index i ensures that no two consecutive values are the same
         mt[0] = seed ^ (globalId * 2654435761U);
         for (unsigned int i = 1; i < MT_N; ++i) {
             unsigned int prev = mt[i - 1];
